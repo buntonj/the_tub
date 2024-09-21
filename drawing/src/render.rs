@@ -2,6 +2,21 @@ use std::f64::consts::PI;
 
 use three_d::*;
 
+struct RotationData {
+    angle_rad: f64,
+    rotation_frequency_hz: f64,
+}
+
+impl RotationData {
+    fn update(&mut self, dt_s: f64) {
+        self.angle_rad += dt_s * 2.0 * PI * self.rotation_frequency_hz;
+    }
+
+    fn current_mat4(&mut self) -> Mat4 {
+        Mat4::from_angle_y(radians(self.angle_rad as f32))
+    }
+}
+
 pub fn run() {
     // Create a window (a canvas on web)
     let window = Window::new(WindowSettings {
@@ -36,8 +51,10 @@ pub fn run() {
     ];
 
     // The velocity that the triangle rotates, in radians per second.
-    let mut rotation_angle_rad: f64 = 0.0;
-    let mut rotation_frequency: f64 = 1.0;
+    let mut rotation_state = RotationData {
+        angle_rad: 0.0,
+        rotation_frequency_hz: 1.0,
+    };
     let mut stop_spinning = false;
 
     let colors = vec![
@@ -69,7 +86,7 @@ pub fn run() {
                 .show(gui_context, |ui| {
                     ui.add_space(10.);
                     ui.heading("Control Panel");
-                    ui.add(egui::Slider::new(&mut rotation_frequency, -1.0..=1.0).text("Rotation Frequency (Hz)"));
+                    ui.add(egui::Slider::new(&mut rotation_state.rotation_frequency_hz, -1.0..=1.0).text("Rotation Frequency (Hz)"));
                     ui.toggle_value(&mut stop_spinning, "Stop the spinning!");
                 });
 
@@ -82,9 +99,9 @@ pub fn run() {
 
         // Update the animation of the triangle
         if !stop_spinning {
-            rotation_angle_rad += frame_input.elapsed_time / 1000.0 * 2.0 * PI * rotation_frequency;
-            model.set_transformation(rotate(rotation_angle_rad));
+            rotation_state.update(frame_input.elapsed_time / 1000.0);
         }
+        model.set_transformation(rotation_state.current_mat4());
 
         // Get the screen render target to be able to render something on the screen
         frame_input.screen()
@@ -101,8 +118,4 @@ pub fn run() {
         FrameOutput::default()
     },
     );
-}
-
-fn rotate(rotation_angle_rad: f64) -> Mat4 {
-    Mat4::from_angle_y(radians(rotation_angle_rad as f32))
 }
