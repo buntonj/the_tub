@@ -1,11 +1,11 @@
-use std::f32::consts::PI;
+use std::f64::consts::PI;
 
 use three_d::*;
 
 pub fn run() {
     // Create a window (a canvas on web)
     let window = Window::new(WindowSettings {
-        title: "Triangle!".to_string(),
+        title: "Field!".to_string(),
         max_size: Some((1280, 720)),
         ..Default::default()
     })
@@ -36,7 +36,9 @@ pub fn run() {
     ];
 
     // The velocity that the triangle rotates, in radians per second.
-    let mut rotation_frequency = 0.0;
+    let mut rotation_angle_rad: f64 = 0.0;
+    let mut rotation_frequency: f64 = 1.0;
+    let mut stop_spinning = false;
 
     let colors = vec![
         Srgba::RED,   // bottom right
@@ -48,6 +50,8 @@ pub fn run() {
         colors: Some(colors),
         ..Default::default()
     };
+    let mut axes = Axes::new(&context, 0.0075, 0.075);
+    axes.set_transformation(Mat4::from_translation(vec3(-0.6, -0.5, 0.0)));
     let mut gui = three_d::GUI::new(&context);
 
     // Construct a model, with a default color material, thereby transferring the mesh data to the GPU
@@ -66,6 +70,7 @@ pub fn run() {
                     ui.add_space(10.);
                     ui.heading("Control Panel");
                     ui.add(egui::Slider::new(&mut rotation_frequency, -1.0..=1.0).text("Rotation Frequency (Hz)"));
+                    ui.toggle_value(&mut stop_spinning, "Stop the spinning!");
                 });
 
         });
@@ -76,7 +81,10 @@ pub fn run() {
         control.handle_events(&mut camera, &mut frame_input.events);
 
         // Update the animation of the triangle
-        model.set_transformation(rotate(frame_input.accumulated_time as f32, rotation_frequency));
+        if !stop_spinning {
+            rotation_angle_rad += frame_input.elapsed_time / 1000.0 * 2.0 * PI * rotation_frequency;
+            model.set_transformation(rotate(rotation_angle_rad));
+        }
 
         // Get the screen render target to be able to render something on the screen
         frame_input.screen()
@@ -84,7 +92,7 @@ pub fn run() {
             .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
             // Render the triangle with the color material which uses the per vertex colors defined at construction
             .render(
-                &camera, &model, &[]
+                &camera, model.into_iter().chain(&axes), &[]
             )
             .write(|| gui.render())
             .unwrap();
@@ -95,6 +103,6 @@ pub fn run() {
     );
 }
 
-fn rotate(time: f32, vel: f32) -> Mat4 {
-    Mat4::from_angle_y(radians(time / 1000.0 * 2.0 * PI * vel))
+fn rotate(rotation_angle_rad: f64) -> Mat4 {
+    Mat4::from_angle_y(radians(rotation_angle_rad as f32))
 }
