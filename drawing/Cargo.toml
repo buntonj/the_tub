@@ -1,0 +1,10 @@
+[package]
+name = "drawing_the_bath"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+the_tub = {path = "../the_tub"}
+
+ndarray = "0.16"
+three-d = {version = "0.17", features = ["egui-gui"]}

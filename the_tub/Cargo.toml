@@ -1,0 +1,8 @@
+[package]
+name = "the_tub"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ndarray = "0.16"
+three-d = {version = "0.17", features = ["egui-gui"]}
