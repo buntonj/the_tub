@@ -1,5 +1,7 @@
 use std::f64::consts::PI;
+use the_tub::fields::{Axis, ScalarField2D};
 
+use ndarray::{self as nd};
 use three_d::*;
 
 struct RotationData {
@@ -43,36 +45,44 @@ pub fn run() {
     // Let the viewer click and drag the camera.
     let mut control = OrbitControl::new(*camera.target(), 1.0, 1000.0);
 
-    // Create a CPU-side mesh consisting of a single colored triangle
-    let positions = vec![
-        vec3(0.5, -0.5, 0.0),  // bottom right
-        vec3(-0.5, -0.5, 0.0), // bottom left
-        vec3(0.0, 0.5, 0.0),   // top
-    ];
-
     // The velocity that the triangle rotates, in radians per second.
     let mut rotation_state = RotationData {
         angle_rad: 0.0,
-        rotation_frequency_hz: 1.0,
+        rotation_frequency_hz: 0.0,
     };
     let mut stop_spinning = false;
 
-    let colors = vec![
-        Srgba::RED,   // bottom right
-        Srgba::GREEN, // bottom left
-        Srgba::BLUE,  // top
-    ];
-    let cpu_mesh = CpuMesh {
-        positions: Positions::F32(positions),
-        colors: Some(colors),
-        ..Default::default()
+    // let delta = 0.1;
+    // let size: usize = 100;
+
+    let physics_field = the_tub::physics::build_unit_square_gaussian_field();
+    let render_axes = physics_field.axes().clone(); // Would be nice to test with alternate rendering resolution
+    let renderable = ScalarField2DRenderable {
+        field: physics_field,
+        render_grid: render_axes,
     };
+
+    let mut point_mesh = CpuMesh::sphere(4);
+    point_mesh.transform(&Mat4::from_scale(0.01)).unwrap();
+    let mut model = Gm {
+        geometry: InstancedMesh::new(
+            &context,
+            &PointCloud {
+                positions: Positions::F64(renderable.to_points()),
+                colors: None,
+            }
+            .into(),
+            &point_mesh,
+        ),
+        material: ColorMaterial::default(),
+    };
+
     let mut axes = Axes::new(&context, 0.0075, 0.075);
     axes.set_transformation(Mat4::from_translation(vec3(-0.6, -0.5, 0.0)));
     let mut gui = three_d::GUI::new(&context);
 
     // Construct a model, with a default color material, thereby transferring the mesh data to the GPU
-    let mut model = Gm::new(Mesh::new(&context, &cpu_mesh), ColorMaterial::default());
+    //let mut model = Gm::new(Mesh::new(&context, &cpu_mesh), ColorMaterial::default());
 
     // Start the main render loop
     window.render_loop(
@@ -118,4 +128,26 @@ pub fn run() {
         FrameOutput::default()
     },
     );
+}
+
+struct ScalarField2DRenderable {
+    field: ScalarField2D,
+    render_grid: [Axis; 2],
+}
+
+impl ScalarField2DRenderable {
+    fn render(&self) -> Positions {
+        Positions::F64(self.to_points())
+    }
+    fn to_points(&self) -> Vec<Vector3<f64>> {
+        let [xaxis, yaxis] = &self.render_grid;
+        let mut points = Vec::with_capacity(self.field.num_pts());
+        for &x in xaxis.values() {
+            for &y in yaxis.values() {
+                let evaluation_point = nd::array![x, y];
+                points.push(Vector3::new(x, self.field.interpolate(evaluation_point), y))
+            }
+        }
+        points
+    }
 }
