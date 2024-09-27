@@ -7,7 +7,7 @@ pub fn build_unit_square_gaussian_field() -> fields::ScalarField2D {
         [fields::AxisParams {
             start: -1.0,
             step: 0.025,
-            size: 81,
+            size: 80,
         }; 2],
         [0.125; 2],
         [0.0; 2],

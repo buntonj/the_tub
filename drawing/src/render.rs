@@ -1,5 +1,5 @@
-use std::f64::consts::PI;
-use the_tub::fields::{Axis, ScalarField2D};
+use std::{f64::consts::PI, u8};
+use the_tub::fields::{Axis, AxisParams, ScalarField2D};
 
 use ndarray::{self as nd};
 use three_d::*;
@@ -41,6 +41,9 @@ pub fn run() {
         0.1,
         10.0,
     );
+    let directional_light =
+        DirectionalLight::new(&context, 20.0, Srgba::WHITE, &vec3(-1.0, -1.0, -1.0));
+    let ambient_light = AmbientLight::new(&context, 0.0, Srgba::WHITE);
 
     // Let the viewer click and drag the camera.
     let mut control = OrbitControl::new(*camera.target(), 1.0, 1000.0);
@@ -52,19 +55,24 @@ pub fn run() {
     };
     let mut stop_spinning = false;
 
-    // let delta = 0.1;
-    // let size: usize = 100;
-
     let physics_field = the_tub::physics::build_unit_square_gaussian_field();
-    let render_axes = physics_field.axes().clone(); // Would be nice to test with alternate rendering resolution
+    let render_axes_params = AxisParams {
+        start: -1.0,
+        step: 0.01,
+        size: 200,
+    };
+    let render_axes = [
+        Axis::new(&render_axes_params),
+        Axis::new(&render_axes_params),
+    ]; // physics_field.axes().clone(); // Would be nice to test with alternate rendering resolution
     let renderable = ScalarField2DRenderable {
         field: physics_field,
         render_grid: render_axes,
     };
 
     let mut point_mesh = CpuMesh::sphere(4);
-    point_mesh.transform(&Mat4::from_scale(0.01)).unwrap();
-    let mut model = Gm {
+    point_mesh.transform(&Mat4::from_scale(0.001)).unwrap();
+    let mut point_cloud_model = Gm {
         geometry: InstancedMesh::new(
             &context,
             &PointCloud {
@@ -76,6 +84,21 @@ pub fn run() {
         ),
         material: ColorMaterial::default(),
     };
+
+    let mesh_model = Gm::new(
+        Mesh::new(&context, &renderable.to_mesh()),
+        PhysicalMaterial::new_opaque(
+            &context,
+            &CpuMaterial {
+                albedo: Srgba::new(0, 102, 204, u8::MAX),
+                lighting_model: LightingModel::Cook(
+                    NormalDistributionFunction::TrowbridgeReitzGGX,
+                    GeometryFunction::SmithSchlickGGX,
+                ),
+                ..Default::default()
+            },
+        ),
+    );
 
     let mut axes = Axes::new(&context, 0.0075, 0.075);
     axes.set_transformation(Mat4::from_translation(vec3(-0.6, -0.5, 0.0)));
@@ -111,7 +134,7 @@ pub fn run() {
         if !stop_spinning {
             rotation_state.update(frame_input.elapsed_time / 1000.0);
         }
-        model.set_transformation(rotation_state.current_mat4());
+        point_cloud_model.set_transformation(rotation_state.current_mat4());
 
         // Get the screen render target to be able to render something on the screen
         frame_input.screen()
@@ -119,7 +142,7 @@ pub fn run() {
             .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
             // Render the triangle with the color material which uses the per vertex colors defined at construction
             .render(
-                &camera, model.into_iter().chain(&axes), &[]
+                &camera, mesh_model.into_iter().chain(&axes), &[&directional_light, &ambient_light]
             )
             .write(|| gui.render())
             .unwrap();
@@ -141,7 +164,7 @@ impl ScalarField2DRenderable {
     }
     fn to_points(&self) -> Vec<Vector3<f64>> {
         let [xaxis, yaxis] = &self.render_grid;
-        let mut points = Vec::with_capacity(self.field.num_pts());
+        let mut points = Vec::with_capacity(xaxis.len() * yaxis.len());
         for &x in xaxis.values() {
             for &y in yaxis.values() {
                 let evaluation_point = nd::array![x, y];
@@ -149,5 +172,39 @@ impl ScalarField2DRenderable {
             }
         }
         points
+    }
+    fn to_indices(&self) -> Vec<u32> {
+        let xlen = self.render_grid[0].len();
+        let ylen = self.render_grid[1].len();
+        let mut indices = Vec::<u32>::with_capacity((xlen - 1) * (ylen - 1) * 3);
+        let index_map = |i, j| (i * ylen + j % ylen) as u32;
+        for x in 0..(xlen - 1) {
+            for y in 0..(ylen - 1) {
+                indices.push(index_map(x, y));
+                indices.push(index_map(x, y + 1));
+                indices.push(index_map(x + 1, y + 1));
+
+                indices.push(index_map(x + 1, y + 1));
+                indices.push(index_map(x + 1, y));
+                indices.push(index_map(x, y));
+            }
+        }
+        indices
+    }
+    fn to_color(&self) -> Vec<Srgba> {
+        (0..(self.render_grid[0].len() - 1) * (self.render_grid[1].len() - 1) * 3)
+            .map(|_| Srgba::new(u8::MAX, 0, 0, u8::MAX))
+            .collect()
+    }
+    fn to_mesh(&self) -> CpuMesh {
+        let mut mesh = CpuMesh {
+            indices: Indices::U32(self.to_indices()),
+            positions: Positions::F64(self.to_points()),
+            colors: Some(self.to_color()),
+            ..Default::default()
+        };
+        mesh.compute_normals();
+        mesh.validate().unwrap();
+        mesh
     }
 }

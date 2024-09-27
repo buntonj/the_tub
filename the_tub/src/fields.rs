@@ -117,7 +117,14 @@ impl VectorField2D {
     }
 
     pub fn num_pts(&self) -> usize {
+        // How many sample points define the field.
         self.axes().iter().fold(1, |acc, axis| acc * axis.len())
+    }
+
+    pub fn num_boxes(&self) -> usize {
+        self.axes()
+            .iter()
+            .fold(1, |acc, axis| acc * (axis.len() - 1))
     }
 
     pub fn interpolate(&self, point: nd::Array1<f64>) -> nd::Array1<f64> {
