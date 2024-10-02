@@ -166,6 +166,23 @@ impl VectorField2D {
     }
 }
 
+impl VectorField2D {
+    pub fn advect_with_scalar_field(&mut self, scalar_field: &mut ScalarField2D) {
+        let [x_axis, y_axis] = scalar_field.axes();
+        let [x_axis_vals, y_axis_vals] = [x_axis.values(), y_axis.values()];
+
+        let out_field =
+            nd::Array2::<f64>::from_shape_fn((x_axis_vals.len(), y_axis_vals.len()), |(i, j)| {
+                scalar_field.interpolate(nd::Array1::<f64>::from_vec(vec![
+                    x_axis_vals[i],
+                    y_axis_vals[j],
+                ]))
+            });
+
+        scalar_field.field = out_field;
+    }
+}
+
 impl ScalarField2D {
     pub fn new_zero_field(axes_params: [AxisParams; 2]) -> Self {
         // Create a new scalar field filled with zeros.

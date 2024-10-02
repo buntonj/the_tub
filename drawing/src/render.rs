@@ -85,7 +85,7 @@ pub fn run() {
         material: ColorMaterial::default(),
     };
 
-    let mesh_model = Gm::new(
+    let mut mesh_model = Gm::new(
         Mesh::new(&context, &renderable.to_mesh()),
         PhysicalMaterial::new_opaque(
             &context,
@@ -134,7 +134,16 @@ pub fn run() {
         if !stop_spinning {
             rotation_state.update(frame_input.elapsed_time / 1000.0);
         }
-        point_cloud_model.set_transformation(rotation_state.current_mat4());
+        // point_cloud_model.geometry = InstancedMesh::new(
+        //     &context,
+        //     &PointCloud{
+        //         positions: Positions::F32(
+        //             renderable.to_points().iter().map(|point| rotation_state.current_mat4().transform_vector(Vector3{x: point.x as f32, y: point.y as f32, z: point.z as f32})).collect()),
+        //         colors: None
+        //     }.into(),
+        //     &point_mesh
+        // );
+        mesh_model.set_transformation(rotation_state.current_mat4());
 
         // Get the screen render target to be able to render something on the screen
         frame_input.screen()
@@ -142,7 +151,7 @@ pub fn run() {
             .clear(ClearState::color_and_depth(0.8, 0.8, 0.8, 1.0, 1.0))
             // Render the triangle with the color material which uses the per vertex colors defined at construction
             .render(
-                &camera, mesh_model.into_iter().chain(&axes), &[&directional_light, &ambient_light]
+                &camera, mesh_model.into_iter().chain(&axes).chain(&point_cloud_model), &[&directional_light, &ambient_light]
             )
             .write(|| gui.render())
             .unwrap();
