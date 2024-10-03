@@ -81,14 +81,14 @@ mod tests {
         };
 
         solver.advect();
+        solver.advect();
 
         // The vector field should be unchanged.
         assert_eq!(vector_field, solver.vector_field);
-
-        // The scalar field should be the same, but shifted to the left by one grid space.
+        // The scalar field should still be the same, but shifted left by two grid spaces.
         assert_abs_diff_eq!(
-            scalar_field.field.slice(nd::s![1.., ..]),
-            solver.density.field.slice(nd::s![..-1, ..])
+            scalar_field.field.slice(nd::s![2.., ..]),
+            solver.density.field.slice(nd::s![..-2, ..])
         )
     }
 }
