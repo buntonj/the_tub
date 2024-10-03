@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ndarray = "0.16"
+approx = "0.5.1"
+ndarray = {version = "0.16", features = ["approx"]}
 three-d = {version = "0.17", features = ["egui-gui"]}

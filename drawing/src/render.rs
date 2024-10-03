@@ -177,7 +177,11 @@ impl ScalarField2DRenderable {
         for &x in xaxis.values() {
             for &y in yaxis.values() {
                 let evaluation_point = nd::array![x, y];
-                points.push(Vector3::new(x, self.field.interpolate(evaluation_point), y))
+                points.push(Vector3::new(
+                    x,
+                    self.field.interpolate(&evaluation_point),
+                    y,
+                ))
             }
         }
         points

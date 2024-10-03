@@ -8,10 +8,10 @@ pub struct AxisParams {
     pub size: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Axis {
     // An axis along which solutions take values.
-    values: nd::Array1<f64>,
+    pub values: nd::Array1<f64>,
 }
 
 #[derive(Debug)]
@@ -23,18 +23,20 @@ struct AxisLine {
     value: f64,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct VectorField2D {
     // Vector of axes arrays
-    axes: [Axis; 2],
+    pub axes: [Axis; 2],
     // Indicates the vector field values (indexes 0 and 1 are the point coords, index 3 is the vector)
-    field: nd::Array3<f64>,
+    pub field: nd::Array3<f64>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct ScalarField2D {
     // Vector of axes arrays
-    axes: [Axis; 2],
+    pub axes: [Axis; 2],
     // Scalar field values (indexes 0 and 1 are axes coords, value is field value)
-    field: nd::Array2<f64>,
+    pub field: nd::Array2<f64>,
 }
 
 impl AxisParams {
@@ -127,7 +129,7 @@ impl VectorField2D {
             .fold(1, |acc, axis| acc * (axis.len() - 1))
     }
 
-    pub fn interpolate(&self, point: nd::Array1<f64>) -> nd::Array1<f64> {
+    pub fn interpolate(&self, point: &nd::Array1<f64>) -> nd::Array1<f64> {
         // Find the nearest point in the provided set of points and get the value stored there
         let [x_axis_lines, y_axis_lines] = [
             self.axes[0].find_neighbor_axis_lines(point[0]),
@@ -173,7 +175,7 @@ impl VectorField2D {
 
         let out_field =
             nd::Array2::<f64>::from_shape_fn((x_axis_vals.len(), y_axis_vals.len()), |(i, j)| {
-                scalar_field.interpolate(nd::Array1::<f64>::from_vec(vec![
+                scalar_field.interpolate(&nd::Array1::<f64>::from_vec(vec![
                     x_axis_vals[i],
                     y_axis_vals[j],
                 ]))
@@ -219,7 +221,7 @@ impl ScalarField2D {
         self.axes().iter().fold(1, |acc, axis| acc * axis.len())
     }
 
-    pub fn interpolate(&self, point: nd::Array1<f64>) -> f64 {
+    pub fn interpolate(&self, point: &nd::Array1<f64>) -> f64 {
         // Find the nearest point in the provided set of points and get the value stored there
         let [x_axis_lines, y_axis_lines] = [
             self.axes[0].find_neighbor_axis_lines(point[0]),
@@ -269,14 +271,14 @@ mod tests {
         let mut vector_field = VectorField2D::new_zero_field(axes_params);
         vector_field.field.slice_mut(nd::s![0, .., ..]).fill(-1.);
         let point = nd::Array1::<f64>::from_vec(vec![0.25, 0.25]);
-        let interpolated = vector_field.interpolate(point);
+        let interpolated = vector_field.interpolate(&point);
 
         assert_eq!(interpolated[0], -0.75);
         assert_eq!(interpolated[1], -0.75);
 
         // Interpolating at a target point should return that point again.
         let point = nd::Array1::<f64>::from_vec(vec![0.0, 0.0]);
-        let interpolated = vector_field.interpolate(point);
+        let interpolated = vector_field.interpolate(&point);
 
         assert_eq!(interpolated[0], vector_field.field[[0, 0, 0]]);
         assert_eq!(interpolated[1], vector_field.field[[0, 0, 1]]);
@@ -292,12 +294,12 @@ mod tests {
         let mut scalar_field = ScalarField2D::new_zero_field(axes_params);
         scalar_field.field.slice_mut(nd::s![0, ..]).fill(-1.);
         let point = nd::Array1::<f64>::from_vec(vec![0.25, 0.25]);
-        let interpolated = scalar_field.interpolate(point);
+        let interpolated = scalar_field.interpolate(&point);
 
         assert_eq!(interpolated, -0.75);
 
         let point = nd::Array1::<f64>::from_vec(vec![0.0, 0.0]);
-        let interpolated = scalar_field.interpolate(point);
+        let interpolated = scalar_field.interpolate(&point);
         // If we interpolate at a known point, should just get it back.
         assert_eq!(interpolated, scalar_field.field[[0, 0]])
     }
