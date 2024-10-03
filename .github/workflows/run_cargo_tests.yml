@@ -1,0 +1,32 @@
+name: cargo test the_tub
+
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on:
+  # Runs on pull requests
+  pull_request:
+
+  # Runs on push to main as well
+  push:
+    branches:
+      - main
+
+jobs:
+  test-the-tub:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Tests triggered by a ${{ github.event_name }} off branch ${{ github.ref }}."
+      
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      
+      - name: Update Rust and Add Dependencies
+        run: |
+          rustup update
+
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Run cargo test on the_tub
+        run: |
+          cd the_tub && cargo test
