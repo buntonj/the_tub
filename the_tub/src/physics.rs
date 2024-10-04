@@ -2,14 +2,24 @@ use crate::fields;
 use ndarray as nd;
 use std::f64::consts::PI;
 
-struct AdvectionSolver {
+pub struct AdvectionSolver {
     pub dt: f64,
     pub vector_field: fields::VectorField2D,
     pub density: fields::ScalarField2D,
 }
 
 impl AdvectionSolver {
-    pub fn advect(&mut self) {
+    pub fn step(&mut self) {
+        self.advect();
+    }
+
+    pub fn step_multiple(&mut self, num_steps: u32) {
+        for _ in 0..num_steps {
+            self.advect();
+        }
+    }
+
+    fn advect(&mut self) {
         let [x_axis, y_axis] = self.density.axes();
         let [x_axis_vals, y_axis_vals] = [x_axis.values(), y_axis.values()];
 
@@ -22,6 +32,10 @@ impl AdvectionSolver {
             });
 
         self.density.field = out_field;
+    }
+
+    pub fn evaluate_solution(&self, point: &nd::Array1<f64>) -> f64 {
+        self.density.interpolate(point)
     }
 }
 
@@ -58,7 +72,7 @@ mod tests {
     use crate::fields;
 
     #[test]
-    fn test_advection() {
+    fn test_advection_operator() {
         // Test that a solver can be instantiated.
         let axes_params = [fields::AxisParams {
             start: -1.0,
@@ -80,8 +94,8 @@ mod tests {
             density: scalar_field.clone(),
         };
 
-        solver.advect();
-        solver.advect();
+        solver.step();
+        solver.step();
 
         // The vector field should be unchanged.
         assert_eq!(vector_field, solver.vector_field);
@@ -89,6 +103,37 @@ mod tests {
         assert_abs_diff_eq!(
             scalar_field.field.slice(nd::s![2.., ..]),
             solver.density.field.slice(nd::s![..-2, ..])
+        )
+    }
+
+    #[test]
+    fn test_mass_conservation() {
+        // Test that a solver can be instantiated.
+        let axes_params = [fields::AxisParams {
+            start: -1.0,
+            step: 0.04,
+            size: 50,
+        }; 2];
+        let vector_field = fields::VectorField2D::new_from_function(axes_params, |_, _| [0.0, 1.0]);
+        let scalar_field = fields::ScalarField2D::new_from_function(axes_params, |x, y| {
+            if (x == 0.0) && (y == 0.0) {
+                1.0
+            } else {
+                0.0
+            }
+        });
+        let mut solver = AdvectionSolver {
+            dt: 0.04,
+            vector_field,
+            density: scalar_field.clone(),
+        };
+        // Step just far enough that the mass shouldn't have "moved off the edge"
+        solver.step_multiple(24);
+
+        assert_abs_diff_eq!(
+            scalar_field.field.sum(),
+            solver.density.field.sum(),
+            epsilon = 1E-7
         )
     }
 }
