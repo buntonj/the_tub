@@ -1,23 +1,7 @@
-use std::{f64::consts::PI, u8};
 use the_tub::fields::{Axis, AxisParams, ScalarField2D};
 
 use ndarray::{self as nd};
 use three_d::*;
-
-struct RotationData {
-    angle_rad: f64,
-    rotation_frequency_hz: f64,
-}
-
-impl RotationData {
-    fn update(&mut self, dt_s: f64) {
-        self.angle_rad += dt_s * 2.0 * PI * self.rotation_frequency_hz;
-    }
-
-    fn current_mat4(&mut self) -> Mat4 {
-        Mat4::from_angle_y(radians(self.angle_rad as f32))
-    }
-}
 
 pub fn run() {
     // Create a window (a canvas on web)
@@ -61,12 +45,15 @@ pub fn run() {
         [-0.5, -0.5],
     );
     let vector_field =
-        the_tub::fields::VectorField2D::new_from_function([physics_axes_params; 2], |x, y| [y, -x]);
+        the_tub::fields::VectorField2D::new_from_function([physics_axes_params; 2], |x, y| [-y, x]);
     let solver = the_tub::physics::AdvectionSolver {
         dt: 0.05,
         vector_field,
         density,
     };
+    let mut physics_steps_taken: u128 = 0;
+    let initial_sum = solver.density.sum();
+    let mut current_sum = solver.density.sum();
     let render_axes_params = AxisParams {
         start: -1.0,
         step: 0.02,
@@ -114,6 +101,9 @@ pub fn run() {
                     ui.add_space(10.);
                     ui.heading("Control Panel");
                     ui.toggle_value(&mut pause, "Stop the animation!");
+                    ui.heading("Physics Info:");
+                    ui.label(format!("Physics steps: {}", physics_steps_taken));
+                    ui.label(format!("Current sum: {:.2} (initial {:.2})", current_sum, initial_sum));
                 });
 
         });
@@ -126,6 +116,8 @@ pub fn run() {
         // Step physics.
         if !pause {
             renderable.step();
+            physics_steps_taken += 1;
+            current_sum = renderable.solver.density.sum();
             mesh_model.geometry = Mesh::new(&context, &renderable.to_mesh());
         }
 
@@ -207,11 +199,13 @@ impl AdvectionProblemRenderable {
     }
 }
 
+#[allow(dead_code)]
 struct ScalarField2DRenderable {
     field: ScalarField2D,
     render_axes: [Axis; 2],
 }
 
+#[allow(dead_code)]
 impl ScalarField2DRenderable {
     fn render(&self) -> Positions {
         Positions::F64(self.to_points())

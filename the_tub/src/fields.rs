@@ -12,6 +12,8 @@ pub struct AxisParams {
 pub struct Axis {
     // An axis along which solutions take values.
     pub values: nd::Array1<f64>,
+    // The length of the axis.
+    pub length: f64,
 }
 
 #[derive(Debug)]
@@ -44,6 +46,11 @@ impl AxisParams {
         // compute the value of one past the axis length.
         self.start + self.step * self.size as f64
     }
+
+    fn length(&self) -> f64 {
+        // compute the length of the axis built with the structs parameters.
+        self.step * (self.size as f64) - self.start
+    }
 }
 
 impl Axis {
@@ -55,6 +62,7 @@ impl Axis {
                 axis_params.endpoint_noninclusive(),
                 axis_params.step,
             ),
+            length: axis_params.length(),
         }
     }
 
@@ -64,6 +72,12 @@ impl Axis {
 
     pub fn len(&self) -> usize {
         self.values.len()
+    }
+
+    fn find_periodic_value(&self, value: f64) -> f64 {
+        // Treat the axis as periodic, wrapping the given value to live in the axes limits.
+        self.values.first().unwrap()
+            + (value - self.values.first().unwrap()).rem_euclid(self.length)
     }
 
     fn find_neighbor_axis_lines(&self, value: f64) -> [AxisLine; 2] {
@@ -131,40 +145,48 @@ impl VectorField2D {
 
     pub fn interpolate(&self, point: &nd::Array1<f64>) -> nd::Array1<f64> {
         // Find the nearest point in the provided set of points and get the value stored there
+        let query_point = [
+            self.axes[0].find_periodic_value(point[0]),
+            self.axes[1].find_periodic_value(point[1]),
+        ];
         let [x_axis_lines, y_axis_lines] = [
-            self.axes[0].find_neighbor_axis_lines(point[0]),
-            self.axes[1].find_neighbor_axis_lines(point[1]),
+            self.axes[0].find_neighbor_axis_lines(query_point[0]),
+            self.axes[1].find_neighbor_axis_lines(query_point[1]),
         ];
 
         // Perform bilinear interpolation.
         // Compute denominator value.
-        let denominator = ((x_axis_lines[0].value - x_axis_lines[1].value)
-            * (y_axis_lines[0].value - y_axis_lines[1].value))
-            .abs();
+        let denominator = (x_axis_lines[1].value - x_axis_lines[0].value)
+            .rem_euclid(self.axes[0].length)
+            * (y_axis_lines[1].value - y_axis_lines[0].value).rem_euclid(self.axes[1].length);
 
         let mut out = nd::Array1::<f64>::zeros(2);
-        let (x, y) = (point[0], point[1]);
+        let (x, y) = (query_point[0], query_point[1]);
         // w11 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[0].index, y_axis_lines[0].index, ..])
-            * ((x - x_axis_lines[1].value) * (y - y_axis_lines[1].value) / denominator).abs());
+            * ((x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
+                * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)));
         // w12 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[0].index, y_axis_lines[1].index, ..])
-            * ((x - x_axis_lines[1].value) * (y - y_axis_lines[0].value) / denominator).abs());
+            * ((x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
+                * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)));
         // w21 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[1].index, y_axis_lines[0].index, ..])
-            * ((x - x_axis_lines[0].value) * (y - y_axis_lines[1].value) / denominator).abs());
+            * ((x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
+                * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)));
         // w22 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[1].index, y_axis_lines[1].index, ..])
-            * ((x - x_axis_lines[0].value) * (y - y_axis_lines[0].value) / denominator).abs());
-        out
+            * ((x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
+                * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)));
+        out / denominator
     }
 }
 
@@ -221,34 +243,46 @@ impl ScalarField2D {
         self.axes().iter().fold(1, |acc, axis| acc * axis.len())
     }
 
+    pub fn sum(&self) -> f64 {
+        self.field.sum()
+    }
+
     pub fn interpolate(&self, point: &nd::Array1<f64>) -> f64 {
         // Find the nearest point in the provided set of points and get the value stored there
+        let query_point = [
+            self.axes[0].find_periodic_value(point[0]),
+            self.axes[1].find_periodic_value(point[1]),
+        ];
         let [x_axis_lines, y_axis_lines] = [
-            self.axes[0].find_neighbor_axis_lines(point[0]),
-            self.axes[1].find_neighbor_axis_lines(point[1]),
+            self.axes[0].find_neighbor_axis_lines(query_point[0]),
+            self.axes[1].find_neighbor_axis_lines(query_point[1]),
         ];
 
         // Perform bilinear interpolation.
         // Compute denominator value.
-        let denominator = ((x_axis_lines[0].value - x_axis_lines[1].value)
-            * (y_axis_lines[0].value - y_axis_lines[1].value))
-            .abs();
+        let denominator = (x_axis_lines[1].value - x_axis_lines[0].value)
+            .rem_euclid(self.axes[0].length)
+            * (y_axis_lines[1].value - y_axis_lines[0].value).rem_euclid(self.axes[1].length);
 
         let mut out = 0.0;
-        let (x, y) = (point[0], point[1]);
+        let (x, y) = (query_point[0], query_point[1]);
         // w11 term
-        out += ((x - x_axis_lines[1].value) * (y - y_axis_lines[1].value) / denominator).abs()
+        out += (x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
+            * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)
             * &self.field[[x_axis_lines[0].index, y_axis_lines[0].index]];
         // w12 term
-        out += ((x - x_axis_lines[1].value) * (y - y_axis_lines[0].value) / denominator).abs()
+        out += (x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
+            * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)
             * &self.field[[x_axis_lines[0].index, y_axis_lines[1].index]];
         // w21 term
-        out += ((x - x_axis_lines[0].value) * (y - y_axis_lines[1].value) / denominator).abs()
+        out += (x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
+            * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)
             * &self.field[[x_axis_lines[1].index, y_axis_lines[0].index]];
         // w22 term
-        out += ((x - x_axis_lines[0].value) * (y - y_axis_lines[0].value) / denominator).abs()
+        out += (x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
+            * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)
             * &self.field[[x_axis_lines[1].index, y_axis_lines[1].index]];
-        out
+        out / denominator
     }
 }
 

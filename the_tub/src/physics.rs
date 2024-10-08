@@ -93,16 +93,16 @@ mod tests {
             vector_field: vector_field.clone(),
             density: scalar_field.clone(),
         };
+        let num_steps = 1;
 
-        solver.step();
-        solver.step();
+        solver.step_multiple(1);
 
         // The vector field should be unchanged.
         assert_eq!(vector_field, solver.vector_field);
         // The scalar field should still be the same, but shifted left by two grid spaces.
         assert_abs_diff_eq!(
-            scalar_field.field.slice(nd::s![2.., ..]),
-            solver.density.field.slice(nd::s![..-2, ..])
+            scalar_field.field.slice(nd::s![num_steps.., ..]),
+            solver.density.field.slice(nd::s![..-num_steps, ..])
         )
     }
 
