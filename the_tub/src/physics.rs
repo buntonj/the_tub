@@ -56,11 +56,35 @@ pub fn build_square_gaussian_field(
     sigma: [f64; 2],
     mu: [f64; 2],
 ) -> fields::ScalarField2D {
-    let gaussian = move |x: f64, y: f64| {
-        1.0 / 2.0 / PI / (sigma[0] * sigma[1]).sqrt()
-            * (-0.5 * ((x - mu[0]).powi(2) / sigma[0] + (y - mu[1]).powi(2) / sigma[1])).exp()
-    };
+    let gaussian =
+        move |x: f64, y: f64| gaussian_1d(x, mu[0], sigma[0]) * gaussian_1d(y, mu[1], sigma[1]);
     fields::ScalarField2D::new_from_function(axes_params, gaussian)
+}
+
+pub fn build_centered_bump(
+    axes_params: [fields::AxisParams; 2],
+    center: [f64; 2],
+    magnitude: f64,
+) -> fields::ScalarField2D {
+    let bump_2d = move |x: f64, y: f64| magnitude * bump_1d(x - center[0]) * bump_1d(y - center[1]);
+    fields::ScalarField2D::new_from_function(axes_params, bump_2d)
+}
+
+fn gaussian_1d(x: f64, mu: f64, sigma: f64) -> f64 {
+    (-0.5 * ((x - mu) / sigma).powi(2)).exp() / (2.0 * PI).sqrt() / sigma
+}
+
+fn bump_1d(x: f64) -> f64 {
+    if x.abs() < 1.0 {
+        let out = (-1.0 / (1.0 - x.powi(2))).exp();
+        if out.is_finite() {
+            out
+        } else {
+            0.0
+        }
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -104,6 +128,30 @@ mod tests {
             scalar_field.field.slice(nd::s![num_steps.., ..]),
             solver.density.field.slice(nd::s![..-num_steps, ..])
         )
+    }
+
+    #[test]
+    fn test_advect_zero() {
+        // Test that a solver can be instantiated.
+        let axes_params = [fields::AxisParams {
+            start: -1.0,
+            step: 0.5,
+            size: 5,
+        }; 2];
+        let vector_field =
+            fields::VectorField2D::new_from_function(axes_params, |_, _| [-1.0, 0.0]);
+        let scalar_field = fields::ScalarField2D::new_zero_field(axes_params);
+        let mut solver = AdvectionSolver {
+            dt: axes_params[0].step,
+            vector_field: vector_field.clone(),
+            density: scalar_field.clone(),
+        };
+        let num_steps = 1;
+
+        solver.step_multiple(num_steps);
+
+        // The vector field should be unchanged.
+        assert_eq!(vector_field, solver.vector_field);
     }
 
     #[test]

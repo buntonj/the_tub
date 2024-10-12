@@ -12,7 +12,7 @@ pub struct AxisParams {
 pub struct Axis {
     // An axis along which solutions take values.
     pub values: nd::Array1<f64>,
-    // The length of the axis.
+    // The length of the axis (counting zero as the noninclusive endpoint).
     pub length: f64,
 }
 
@@ -23,6 +23,8 @@ struct AxisLine {
     index: usize,
     // The fixed value along this grid line.
     value: f64,
+    // The absolute distance from the query point to this axis line.
+    distance: f64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -49,7 +51,7 @@ impl AxisParams {
 
     fn length(&self) -> f64 {
         // compute the length of the axis built with the structs parameters.
-        self.step * (self.size as f64) - self.start
+        self.step * (self.size as f64)
     }
 }
 
@@ -70,31 +72,43 @@ impl Axis {
         &self.values
     }
 
-    pub fn len(&self) -> usize {
+    pub fn array_len(&self) -> usize {
         self.values.len()
     }
 
     fn find_periodic_value(&self, value: f64) -> f64 {
         // Treat the axis as periodic, wrapping the given value to live in the axes limits.
+        let start = self.values.first().unwrap();
         self.values.first().unwrap()
             + (value - self.values.first().unwrap()).rem_euclid(self.length)
     }
 
     fn find_neighbor_axis_lines(&self, value: f64) -> [AxisLine; 2] {
         // For a given value, select the two neighboring axis lines within the axis range.
+        let query_value = self.find_periodic_value(value);
         let index = self
             .values
             .as_slice()
             .unwrap()
-            .partition_point(|&x| x < value);
-        [
+            .partition_point(|&x| x < query_value);
+        let idxs = [
             index.checked_sub(1).unwrap_or(self.values.len() - 1),
             index % self.values.len(),
+        ];
+
+        // Doing it manually guarantees rem_euclid provides the right distance
+        [
+            AxisLine {
+                index: idxs[0],
+                value: self.values[idxs[0]],
+                distance: (query_value - self.values[idxs[0]]).rem_euclid(self.length),
+            },
+            AxisLine {
+                index: idxs[1],
+                value: self.values[idxs[1]],
+                distance: (self.values[idxs[1]] - query_value).rem_euclid(self.length),
+            },
         ]
-        .map(|index| AxisLine {
-            index,
-            value: self.values[index],
-        })
     }
 }
 
@@ -134,58 +148,50 @@ impl VectorField2D {
 
     pub fn num_pts(&self) -> usize {
         // How many sample points define the field.
-        self.axes().iter().fold(1, |acc, axis| acc * axis.len())
+        self.axes()
+            .iter()
+            .fold(1, |acc, axis| acc * axis.array_len())
     }
 
     pub fn num_boxes(&self) -> usize {
         self.axes()
             .iter()
-            .fold(1, |acc, axis| acc * (axis.len() - 1))
+            .fold(1, |acc, axis| acc * (axis.array_len() - 1))
     }
 
     pub fn interpolate(&self, point: &nd::Array1<f64>) -> nd::Array1<f64> {
-        // Find the nearest point in the provided set of points and get the value stored there
-        let query_point = [
-            self.axes[0].find_periodic_value(point[0]),
-            self.axes[1].find_periodic_value(point[1]),
-        ];
+        // Query the axes for the nearest values and distances.
         let [x_axis_lines, y_axis_lines] = [
-            self.axes[0].find_neighbor_axis_lines(query_point[0]),
-            self.axes[1].find_neighbor_axis_lines(query_point[1]),
+            self.axes[0].find_neighbor_axis_lines(point[0]),
+            self.axes[1].find_neighbor_axis_lines(point[1]),
         ];
 
         // Perform bilinear interpolation.
         // Compute denominator value.
-        let denominator = (x_axis_lines[1].value - x_axis_lines[0].value)
-            .rem_euclid(self.axes[0].length)
-            * (y_axis_lines[1].value - y_axis_lines[0].value).rem_euclid(self.axes[1].length);
+        let denominator = (x_axis_lines[1].distance + x_axis_lines[0].distance)
+            * (y_axis_lines[1].distance + y_axis_lines[0].distance);
 
         let mut out = nd::Array1::<f64>::zeros(2);
-        let (x, y) = (query_point[0], query_point[1]);
         // w11 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[0].index, y_axis_lines[0].index, ..])
-            * ((x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
-                * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)));
+            * (x_axis_lines[1].distance * y_axis_lines[1].distance));
         // w12 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[0].index, y_axis_lines[1].index, ..])
-            * ((x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
-                * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)));
+            * (x_axis_lines[1].distance * y_axis_lines[0].distance));
         // w21 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[1].index, y_axis_lines[0].index, ..])
-            * ((x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
-                * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)));
+            * (x_axis_lines[0].distance * y_axis_lines[1].distance));
         // w22 term
         out += &(&self
             .field
             .slice(nd::s![x_axis_lines[1].index, y_axis_lines[1].index, ..])
-            * ((x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
-                * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)));
+            * (x_axis_lines[0].distance * y_axis_lines[0].distance));
         out / denominator
     }
 }
@@ -240,7 +246,9 @@ impl ScalarField2D {
     }
 
     pub fn num_pts(&self) -> usize {
-        self.axes().iter().fold(1, |acc, axis| acc * axis.len())
+        self.axes()
+            .iter()
+            .fold(1, |acc, axis| acc * axis.array_len())
     }
 
     pub fn sum(&self) -> f64 {
@@ -248,39 +256,31 @@ impl ScalarField2D {
     }
 
     pub fn interpolate(&self, point: &nd::Array1<f64>) -> f64 {
-        // Find the nearest point in the provided set of points and get the value stored there
-        let query_point = [
-            self.axes[0].find_periodic_value(point[0]),
-            self.axes[1].find_periodic_value(point[1]),
-        ];
+        // Query the axes for the nearest values and distances.
         let [x_axis_lines, y_axis_lines] = [
-            self.axes[0].find_neighbor_axis_lines(query_point[0]),
-            self.axes[1].find_neighbor_axis_lines(query_point[1]),
+            self.axes[0].find_neighbor_axis_lines(point[0]),
+            self.axes[1].find_neighbor_axis_lines(point[1]),
         ];
 
-        // Perform bilinear interpolation.
-        // Compute denominator value.
-        let denominator = (x_axis_lines[1].value - x_axis_lines[0].value)
-            .rem_euclid(self.axes[0].length)
-            * (y_axis_lines[1].value - y_axis_lines[0].value).rem_euclid(self.axes[1].length);
+        let denominator = (x_axis_lines[1].distance + x_axis_lines[0].distance)
+            * (y_axis_lines[1].distance + y_axis_lines[0].distance);
 
         let mut out = 0.0;
-        let (x, y) = (query_point[0], query_point[1]);
+
         // w11 term
-        out += (x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
-            * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)
+        out += (x_axis_lines[1].distance * y_axis_lines[1].distance)
             * &self.field[[x_axis_lines[0].index, y_axis_lines[0].index]];
+
         // w12 term
-        out += (x_axis_lines[1].value - x).rem_euclid(self.axes[0].length)
-            * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)
+        out += (x_axis_lines[1].distance * y_axis_lines[0].distance)
             * &self.field[[x_axis_lines[0].index, y_axis_lines[1].index]];
+
         // w21 term
-        out += (x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
-            * (y_axis_lines[1].value - y).rem_euclid(self.axes[1].length)
+        out += (x_axis_lines[0].distance * y_axis_lines[1].distance)
             * &self.field[[x_axis_lines[1].index, y_axis_lines[0].index]];
+
         // w22 term
-        out += (x - x_axis_lines[0].value).rem_euclid(self.axes[0].length)
-            * (y - y_axis_lines[0].value).rem_euclid(self.axes[1].length)
+        out += (x_axis_lines[0].distance * y_axis_lines[0].distance)
             * &self.field[[x_axis_lines[1].index, y_axis_lines[1].index]];
         out / denominator
     }
@@ -298,35 +298,43 @@ mod tests {
     #[test]
     fn test_interp_vector() {
         let axes_params = [AxisParams {
-            size: 2,
+            size: 4,
             start: 0.0,
-            step: 1.0,
+            step: 0.5,
         }; 2];
         let mut vector_field = VectorField2D::new_zero_field(axes_params);
         vector_field.field.slice_mut(nd::s![0, .., ..]).fill(-1.);
         let point = nd::Array1::<f64>::from_vec(vec![0.25, 0.25]);
         let interpolated = vector_field.interpolate(&point);
 
-        assert_eq!(interpolated[0], -0.75);
-        assert_eq!(interpolated[1], -0.75);
+        assert_eq!(interpolated[0], -0.5);
+        assert_eq!(interpolated[1], -0.5);
 
-        // Interpolating at a target point should return that point again.
-        let point = nd::Array1::<f64>::from_vec(vec![0.0, 0.0]);
+        // Interpolating at a point by looping around should return that point again.
+        let point = nd::Array1::<f64>::from_vec(vec![2.0, 2.0]);
         let interpolated = vector_field.interpolate(&point);
 
         assert_eq!(interpolated[0], vector_field.field[[0, 0, 0]]);
         assert_eq!(interpolated[1], vector_field.field[[0, 0, 1]]);
+
+        // Interpolating at a target point should return that point again.
+        let point = nd::Array1::<f64>::from_vec(vec![0.5, 1.5]);
+        let interpolated = vector_field.interpolate(&point);
+
+        assert_eq!(interpolated[0], vector_field.field[[1, 2, 0]]);
+        assert_eq!(interpolated[1], vector_field.field[[1, 2, 1]]);
     }
 
     #[test]
     fn test_interp_scalar() {
         let axes_params = [AxisParams {
-            size: 2,
+            size: 3,
             start: 0.0,
             step: 1.0,
         }; 2];
         let mut scalar_field = ScalarField2D::new_zero_field(axes_params);
         scalar_field.field.slice_mut(nd::s![0, ..]).fill(-1.);
+        println!("{}", scalar_field.field);
         let point = nd::Array1::<f64>::from_vec(vec![0.25, 0.25]);
         let interpolated = scalar_field.interpolate(&point);
 
@@ -335,7 +343,16 @@ mod tests {
         let point = nd::Array1::<f64>::from_vec(vec![0.0, 0.0]);
         let interpolated = scalar_field.interpolate(&point);
         // If we interpolate at a known point, should just get it back.
-        assert_eq!(interpolated, scalar_field.field[[0, 0]])
+        assert_eq!(interpolated, scalar_field.field[[0, 0]]);
+
+        // If we interpolate at a point off the grid, it should wrap.
+        let point = nd::Array1::<f64>::from_vec(vec![2.25, 0.0]);
+        let interpolated = scalar_field.interpolate(&point);
+        println!("{}", scalar_field.field);
+        assert_eq!(
+            interpolated,
+            0.75 * scalar_field.field[[2, 0]] + 0.25 * scalar_field.field[[0, 0]]
+        );
     }
 
     #[test]

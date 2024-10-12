@@ -32,7 +32,7 @@ pub fn run() {
     // Let the viewer click and drag the camera.
     let mut control = OrbitControl::new(*camera.target(), 1.0, 1000.0);
 
-    let mut pause = false;
+    let mut play = false;
 
     let physics_axes_params = AxisParams {
         start: -1.0,
@@ -41,9 +41,10 @@ pub fn run() {
     };
     let density = the_tub::physics::build_square_gaussian_field(
         [physics_axes_params; 2],
-        [0.1; 2],
+        [0.25; 2],
         [-0.5, -0.5],
     );
+    // let density = the_tub::physics::build_centered_bump([physics_axes_params; 2], [0.1; 2], 10.0);
     let vector_field =
         the_tub::fields::VectorField2D::new_from_function([physics_axes_params; 2], |x, y| [-y, x]);
     let solver = the_tub::physics::AdvectionSolver {
@@ -100,7 +101,7 @@ pub fn run() {
                 .show(gui_context, |ui| {
                     ui.add_space(10.);
                     ui.heading("Control Panel");
-                    ui.toggle_value(&mut pause, "Stop the animation!");
+                    ui.toggle_value(&mut play, "Play the animation!");
                     ui.heading("Physics Info:");
                     ui.label(format!("Physics steps: {}", physics_steps_taken));
                     ui.label(format!("Current sum: {:.2} (initial {:.2})", current_sum, initial_sum));
@@ -114,7 +115,7 @@ pub fn run() {
         control.handle_events(&mut camera, &mut frame_input.events);
 
         // Step physics.
-        if !pause {
+        if play {
             renderable.step();
             physics_steps_taken += 1;
             current_sum = renderable.solver.density.sum();
@@ -146,7 +147,7 @@ struct AdvectionProblemRenderable {
 impl AdvectionProblemRenderable {
     fn to_points(&self) -> Vec<Vector3<f64>> {
         let [xaxis, yaxis] = &self.render_axes;
-        let mut points = Vec::with_capacity(xaxis.len() * yaxis.len());
+        let mut points = Vec::with_capacity(xaxis.array_len() * yaxis.array_len());
         for &x in xaxis.values() {
             for &y in yaxis.values() {
                 let evaluation_point = nd::array![x, y];
@@ -160,8 +161,8 @@ impl AdvectionProblemRenderable {
         points
     }
     fn to_indices(&self) -> Vec<u32> {
-        let xlen = self.render_axes[0].len();
-        let ylen = self.render_axes[1].len();
+        let xlen = self.render_axes[0].array_len();
+        let ylen = self.render_axes[1].array_len();
         let mut indices = Vec::<u32>::with_capacity((xlen - 1) * (ylen - 1) * 3);
         let index_map = |i, j| (i * ylen + j % ylen) as u32;
         for x in 0..(xlen - 1) {
@@ -178,7 +179,7 @@ impl AdvectionProblemRenderable {
         indices
     }
     fn to_color(&self) -> Vec<Srgba> {
-        (0..(self.render_axes[0].len() - 1) * (self.render_axes[1].len() - 1) * 3)
+        (0..(self.render_axes[0].array_len() - 1) * (self.render_axes[1].array_len() - 1) * 3)
             .map(|_| Srgba::new(u8::MAX, 0, 0, 100))
             .collect()
     }
@@ -212,7 +213,7 @@ impl ScalarField2DRenderable {
     }
     fn to_points(&self) -> Vec<Vector3<f64>> {
         let [xaxis, yaxis] = &self.render_axes;
-        let mut points = Vec::with_capacity(xaxis.len() * yaxis.len());
+        let mut points = Vec::with_capacity(xaxis.array_len() * yaxis.array_len());
         for &x in xaxis.values() {
             for &y in yaxis.values() {
                 let evaluation_point = nd::array![x, y];
@@ -226,8 +227,8 @@ impl ScalarField2DRenderable {
         points
     }
     fn to_indices(&self) -> Vec<u32> {
-        let xlen = self.render_axes[0].len();
-        let ylen = self.render_axes[1].len();
+        let xlen = self.render_axes[0].array_len();
+        let ylen = self.render_axes[1].array_len();
         let mut indices = Vec::<u32>::with_capacity((xlen - 1) * (ylen - 1) * 3);
         let index_map = |i, j| (i * ylen + j % ylen) as u32;
         for x in 0..(xlen - 1) {
@@ -244,7 +245,7 @@ impl ScalarField2DRenderable {
         indices
     }
     fn to_color(&self) -> Vec<Srgba> {
-        (0..(self.render_axes[0].len() - 1) * (self.render_axes[1].len() - 1) * 3)
+        (0..(self.render_axes[0].array_len() - 1) * (self.render_axes[1].array_len() - 1) * 3)
             .map(|_| Srgba::new(u8::MAX, 0, 0, u8::MAX))
             .collect()
     }
