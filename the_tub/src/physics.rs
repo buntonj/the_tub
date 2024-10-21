@@ -23,13 +23,15 @@ impl AdvectionSolver {
         let [x_axis, y_axis] = self.density.axes();
         let [x_axis_vals, y_axis_vals] = [x_axis.values(), y_axis.values()];
 
-        let out_field =
-            nd::Array2::<f64>::from_shape_fn((x_axis_vals.len(), y_axis_vals.len()), |(i, j)| {
-                let coordinate = nd::Array1::<f64>::from_vec(vec![x_axis_vals[i], y_axis_vals[j]]);
-                let direction = self.vector_field.interpolate(&coordinate);
-                self.density
-                    .interpolate(&(&coordinate - self.dt * &direction))
-            });
+        let mut out_field = self.density.field.clone();
+
+        ndarray::Zip::indexed(&mut out_field).par_for_each(|(i, j), out| {
+            let coordinate = nd::Array1::<f64>::from_vec(vec![x_axis_vals[i], y_axis_vals[j]]);
+            let direction = self.vector_field.interpolate(&coordinate);
+            *out = self
+                .density
+                .interpolate(&(&coordinate - self.dt * &direction));
+        });
 
         self.density.field = out_field;
     }
@@ -91,9 +93,33 @@ fn bump_1d(x: f64) -> f64 {
 mod tests {
     use approx::*;
     use ndarray as nd;
+    use std::f64::consts::PI;
 
-    use super::AdvectionSolver;
-    use crate::fields;
+    use super::{gaussian_1d, AdvectionSolver};
+    use crate::{fields, physics::build_square_gaussian_field};
+
+    #[test]
+    fn test_gaussian() {
+        let axes_params = [fields::AxisParams {
+            start: -1.0,
+            step: 0.5,
+            size: 5,
+        }; 2];
+        let mu = [-0.5; 2];
+        let sigma = [1.1; 2];
+
+        // Value at the middle should be easy to compute.
+        assert_abs_diff_eq!(
+            gaussian_1d(mu[0], mu[0], sigma[0]),
+            1.0 / (2.0 * PI).sqrt() / sigma[0]
+        );
+
+        let density = build_square_gaussian_field(axes_params, sigma, mu);
+        assert_abs_diff_eq!(
+            density.interpolate(&nd::Array1::from_vec(mu.into())),
+            1.0 / 2.0 / PI / sigma[0] / sigma[1]
+        )
+    }
 
     #[test]
     fn test_advection_operator() {

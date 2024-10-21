@@ -1,6 +1,5 @@
-use the_tub::fields::{Axis, AxisParams, ScalarField2D};
+use the_tub::fields::{AxisParams, ScalarField2D};
 
-use ndarray::{self as nd};
 use three_d::*;
 
 pub fn run() {
@@ -33,41 +32,44 @@ pub fn run() {
     let mut control = OrbitControl::new(*camera.target(), 1.0, 1000.0);
 
     let mut play = false;
+    let mut time_to_render = 0.0;
 
     let physics_axes_params = AxisParams {
         start: -1.0,
-        step: 0.025,
-        size: 80,
+        step: 0.05,
+        size: 40,
     };
-    let density = the_tub::physics::build_square_gaussian_field(
-        [physics_axes_params; 2],
-        [0.25; 2],
-        [-0.5, -0.5],
-    );
-    // let density = the_tub::physics::build_centered_bump([physics_axes_params; 2], [0.1; 2], 10.0);
+    // let density = the_tub::physics::build_square_gaussian_field(
+    //     [physics_axes_params; 2],
+    //     [0.25; 2],
+    //     [-0.5, -0.5],
+    // );
+    let density = the_tub::physics::build_centered_bump([physics_axes_params; 2], [0.0; 2], 12.0);
     let vector_field =
-        the_tub::fields::VectorField2D::new_from_function([physics_axes_params; 2], |x, y| [-y, x]);
+        the_tub::fields::VectorField2D::new_from_function([physics_axes_params; 2], |x, y| {
+            [(x - y).cos() * (y - x).cos(), (y - x).sin() * (x - y).sin()]
+        });
     let solver = the_tub::physics::AdvectionSolver {
-        dt: 0.05,
+        dt: 0.025,
         vector_field,
         density,
     };
     let mut physics_steps_taken: u128 = 0;
     let initial_sum = solver.density.sum();
     let mut current_sum = solver.density.sum();
-    let render_axes_params = AxisParams {
-        start: -1.0,
-        step: 0.02,
-        size: 100,
-    };
-    let render_axes = [
-        Axis::new(&render_axes_params),
-        Axis::new(&render_axes_params),
-    ];
+    // let render_axes_params = AxisParams {
+    //     start: -1.0,
+    //     step: 0.02,
+    //     size: 100,
+    // };
+    // let render_axes = [
+    //     Axis::new(&render_axes_params),
+    //     Axis::new(&render_axes_params),
+    // ];
 
     let mut renderable = AdvectionProblemRenderable {
         solver,
-        render_axes,
+        // render_axes,
     };
 
     let mut mesh_model = Gm::new(
@@ -105,6 +107,7 @@ pub fn run() {
                     ui.heading("Physics Info:");
                     ui.label(format!("Physics steps: {}", physics_steps_taken));
                     ui.label(format!("Current sum: {:.2} (initial {:.2})", current_sum, initial_sum));
+                    ui.label(format!("Time to render: {:.1} ms", time_to_render))
                 });
 
         });
@@ -120,6 +123,7 @@ pub fn run() {
             physics_steps_taken += 1;
             current_sum = renderable.solver.density.sum();
             mesh_model.geometry = Mesh::new(&context, &renderable.to_mesh());
+            time_to_render = frame_input.elapsed_time;
         }
 
         // Get the screen render target to be able to render something on the screen
@@ -141,28 +145,24 @@ pub fn run() {
 
 struct AdvectionProblemRenderable {
     solver: the_tub::physics::AdvectionSolver,
-    render_axes: [Axis; 2],
+    // render_axes: [Axis; 2],
 }
 
 impl AdvectionProblemRenderable {
     fn to_points(&self) -> Vec<Vector3<f64>> {
-        let [xaxis, yaxis] = &self.render_axes;
+        let [xaxis, yaxis] = &self.solver.density.axes();
         let mut points = Vec::with_capacity(xaxis.array_len() * yaxis.array_len());
-        for &x in xaxis.values() {
-            for &y in yaxis.values() {
-                let evaluation_point = nd::array![x, y];
-                points.push(Vector3::new(
-                    x,
-                    self.solver.evaluate_solution(&evaluation_point),
-                    y,
-                ))
+        for (i, &x) in xaxis.values().iter().enumerate() {
+            for (j, &y) in yaxis.values().iter().enumerate() {
+                // let evaluation_point = nd::array![x, y];
+                points.push(Vector3::new(x, self.solver.density.field[[i, j]], y))
             }
         }
         points
     }
     fn to_indices(&self) -> Vec<u32> {
-        let xlen = self.render_axes[0].array_len();
-        let ylen = self.render_axes[1].array_len();
+        let xlen = self.solver.density.axes[0].array_len();
+        let ylen = self.solver.density.axes[1].array_len();
         let mut indices = Vec::<u32>::with_capacity((xlen - 1) * (ylen - 1) * 3);
         let index_map = |i, j| (i * ylen + j % ylen) as u32;
         for x in 0..(xlen - 1) {
@@ -179,7 +179,9 @@ impl AdvectionProblemRenderable {
         indices
     }
     fn to_color(&self) -> Vec<Srgba> {
-        (0..(self.render_axes[0].array_len() - 1) * (self.render_axes[1].array_len() - 1) * 3)
+        (0..(self.solver.density.axes[0].array_len() - 1)
+            * (self.solver.density.axes[1].array_len() - 1)
+            * 3)
             .map(|_| Srgba::new(u8::MAX, 0, 0, 100))
             .collect()
     }
@@ -203,7 +205,7 @@ impl AdvectionProblemRenderable {
 #[allow(dead_code)]
 struct ScalarField2DRenderable {
     field: ScalarField2D,
-    render_axes: [Axis; 2],
+    // render_axes: [Axis; 2],
 }
 
 #[allow(dead_code)]
@@ -212,23 +214,19 @@ impl ScalarField2DRenderable {
         Positions::F64(self.to_points())
     }
     fn to_points(&self) -> Vec<Vector3<f64>> {
-        let [xaxis, yaxis] = &self.render_axes;
+        let [xaxis, yaxis] = &self.field.axes();
         let mut points = Vec::with_capacity(xaxis.array_len() * yaxis.array_len());
-        for &x in xaxis.values() {
-            for &y in yaxis.values() {
-                let evaluation_point = nd::array![x, y];
-                points.push(Vector3::new(
-                    x,
-                    self.field.interpolate(&evaluation_point),
-                    y,
-                ))
+        for (i, &x) in xaxis.values().iter().enumerate() {
+            for (j, &y) in yaxis.values().iter().enumerate() {
+                // let evaluation_point = nd::array![x, y];
+                points.push(Vector3::new(x, self.field.field[[i, j]], y))
             }
         }
         points
     }
     fn to_indices(&self) -> Vec<u32> {
-        let xlen = self.render_axes[0].array_len();
-        let ylen = self.render_axes[1].array_len();
+        let xlen = self.field.axes[0].array_len();
+        let ylen = self.field.axes[1].array_len();
         let mut indices = Vec::<u32>::with_capacity((xlen - 1) * (ylen - 1) * 3);
         let index_map = |i, j| (i * ylen + j % ylen) as u32;
         for x in 0..(xlen - 1) {
@@ -245,7 +243,7 @@ impl ScalarField2DRenderable {
         indices
     }
     fn to_color(&self) -> Vec<Srgba> {
-        (0..(self.render_axes[0].array_len() - 1) * (self.render_axes[1].array_len() - 1) * 3)
+        (0..(self.field.axes[0].array_len() - 1) * (self.field.axes[1].array_len() - 1) * 3)
             .map(|_| Srgba::new(u8::MAX, 0, 0, u8::MAX))
             .collect()
     }

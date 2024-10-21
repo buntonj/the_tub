@@ -17,6 +17,7 @@ pub struct Axis {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct AxisLine {
     /// A line perpendicular to an axis, i.e., all values along that axis are fixed.
     // The index along the axis where this value is found.
@@ -79,8 +80,7 @@ impl Axis {
     fn find_periodic_value(&self, value: f64) -> f64 {
         // Treat the axis as periodic, wrapping the given value to live in the axes limits.
         let start = self.values.first().unwrap();
-        self.values.first().unwrap()
-            + (value - self.values.first().unwrap()).rem_euclid(self.length)
+        start + (value - start).rem_euclid(self.length)
     }
 
     fn find_neighbor_axis_lines(&self, value: f64) -> [AxisLine; 2] {
